@@ -1,6 +1,9 @@
 use std::error::Error;
-use xcb::x::{Screen, Window};
-use xcb::Xid;
+use xcb::randr::{GetScreenInfo, GetScreenResources};
+use xcb::x::{
+    CreateWindow, Cw, Event, EventMask, MapWindow, Screen, Window, WindowClass, COPY_FROM_PARENT,
+};
+use xcb::{Event::X, Xid};
 
 struct XDisplay {
     conn: xcb::Connection,
@@ -13,6 +16,25 @@ impl XDisplay {
         let setup = conn.get_setup();
         let screen = setup.roots().nth(screen_num as usize).unwrap();
         let window: Window = screen.root();
+        let window_dummy = conn.generate_id();
+        conn.send_request(&CreateWindow {
+            depth: COPY_FROM_PARENT as u8,
+            wid: window_dummy,
+            parent: screen.root(),
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1,
+            border_width: 0,
+            class: WindowClass::InputOnly,
+            visual: 0,
+            value_list: &[],
+        });
+        let cookie = conn.send_request_checked(&MapWindow {
+            window: window_dummy,
+        });
+
+        conn.check_request(cookie).expect("error occured");
         Self { conn, root: window }
     }
 
