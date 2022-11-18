@@ -6,4 +6,5 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-xcb = {version= "1.2.0", features=["randr"]} 
+rlua = "0.19.4" 
+xcb = {version= "1.2.0", features=["randr","composite","present"]} 
