@@ -1,7 +1,11 @@
 use std::collections::HashMap;
 
 use xcb::{
-    x::{ChangeWindowAttributes, Cw, EventMask, KeyPressEvent, Window},
+    randr::SelectInput,
+    x::{
+        ChangeWindowAttributes, ConfigureWindow, Cw, EventMask, GetWindowAttributesCookie,
+        KeyPressEvent, ReparentWindow, Visualid, Window, COPY_FROM_PARENT,
+    },
     Xid,
 };
 // use xcb::{Event::X, Xid};
@@ -69,6 +73,23 @@ impl XDisplay {
         loop {
             let event = self.conn.wait_for_event();
             match event {
+                Ok(xcb::Event::X(xcb::x::Event::ConfigureRequest(e))) => {
+                    let cookie = self.conn.send_request_checked(&xcb::x::ConfigureWindow {
+                        window: self.root,
+                        value_list: &[
+                            xcb::x::ConfigWindow::X(e.x().into()),
+                            xcb::x::ConfigWindow::Y(e.y().into()),
+                            xcb::x::ConfigWindow::Width(e.width().into()),
+                            xcb::x::ConfigWindow::Height(e.height().into()),
+                            xcb::x::ConfigWindow::BorderWidth(3),
+                        ],
+                    });
+                    self.conn.flush().unwrap();
+                    let result = self.conn.check_request(cookie);
+                    if result.is_err() {
+                        println!("ConfigureRequest failed {:?}", result);
+                    }
+                }
                 Ok(xcb::Event::X(xcb::x::Event::KeyPress(e))) => {
                     register_keybindings(e);
                 }
@@ -86,6 +107,14 @@ impl XDisplay {
                         println!("MapRequest failed {:?}", result);
                         return;
                     }
+                }
+                Ok(xcb::Event::X(xcb::x::Event::ReparentNotify(e))) => {
+                    self.conn.send_request(&ReparentWindow {
+                        window: e.window(),
+                        parent: self.root,
+                        x: 0,
+                        y: 0,
+                    });
                 }
                 Ok(e) => {
                     print!("");

@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=e3wm
+Comment=Highly configurable framework window manager
+TryExec=/usr/bin/E3WM
+Exec=/usr/bin/E3WM
+Type=Application
