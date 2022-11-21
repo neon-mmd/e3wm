@@ -5,8 +5,8 @@
 # the default X server instead.
 XEPHYR=$(whereis -b Xephyr | cut -f2 -d' ')
 xinit ./xinitrc -- \
-    "$XEPHYR" \
-        :100 \
-        -ac \
-        -screen 800x600 \
-        -host-cursor
+	"$XEPHYR" \
+	:100 \
+	-ac \
+	-screen 1360x768 \
+	-host-cursor
