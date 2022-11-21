@@ -174,14 +174,7 @@ impl XDisplay {
         });
     }
 
-    fn unframe(&mut self, win: Window) {
-        let mut new_win: xcb::x::Window = self.conn.generate_id();
-        for (_, j) in self.clients.iter() {
-            if j.window == win {
-                new_win = j.parent;
-            }
-        }
-
+    fn unframe(&mut self, win: Window, ele: u32, new_win: Window) {
         let cookie = self
             .conn
             .send_request_checked(&xcb::x::UnmapWindow { window: new_win });
@@ -200,12 +193,14 @@ impl XDisplay {
         });
 
         self.conn.send_request(&xcb::x::ChangeSaveSet {
-            mode: xcb::x::SetMode::Insert,
+            mode: xcb::x::SetMode::Delete,
             window: win,
         });
 
         self.conn
             .send_request(&xcb::x::DestroyWindow { window: new_win });
+
+        self.clients.remove(&ele);
     }
 
     fn run(&mut self) {
@@ -263,11 +258,26 @@ impl XDisplay {
                         y: 0,
                     });
                 }
-                Ok(xcb::Event::X(xcb::x::Event::UnmapNotify(e))) => {
-                   // self.unframe(e.window());
-                }
-                // Ok(xcb::Event::X(xcb::x::Event::DestroyNotify(e))) => {
-                // unimplemented!();
+
+                //TODO: figure out UnmapNotify with unframing window
+                // Ok(xcb::Event::X(xcb::x::Event::UnmapNotify(e))) => {
+                //     let mut new_win: xcb::x::Window = self.conn.generate_id();
+                //     let mut ele: u32 = 0;
+                //     let mut flag = true;
+                //     for (i, j) in self.clients.iter() {
+                //         if j.window == e.window() {
+                //             new_win = j.parent;
+                //             ele = *i;
+                //             flag = false;
+                //         }
+                //     }
+
+                //     if flag {
+                //         return;
+                //     }
+                //     println!("{:?}", self.clients.get(&ele));
+                //     println!("{:?}", e.window());
+                //     self.unframe(e.window(), ele, new_win);
                 // }
                 Ok(e) => {
                     print!("");
