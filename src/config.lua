@@ -1,1 +1,1 @@
-
+Workspaces = { "term", "browser" }
