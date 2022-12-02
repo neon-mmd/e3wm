@@ -61,6 +61,11 @@ impl Layouts {
 
     fn stack() {}
 
+    fn add_window(&mut self, win: Window) {
+        self.windows.push(win);
+        // println!("{:#?}", self.windows);
+    }
+
     fn max(&self, conn: &Connection, win: xcb::x::Window) {
         if self.windows.is_empty() {
             return;
@@ -86,33 +91,39 @@ impl Layouts {
         }
     }
 
-    fn cycle_windows(&mut self, conn: &Connection) {
+    fn cycle_window_forward(&mut self, conn: &Connection) {
         if self.windows.is_empty() {
             return;
         }
         if self.windows.len() == 1 {
             return;
         }
-        println!("{:?}", self.windows);
-        for win in self.windows.iter() {
-            conn.conn.send_request(&xcb::x::UnmapWindow {
-                window: win.get_window(),
-            });
-            conn.conn.flush().expect("err!");
-        }
-
         let window: Window = self.windows.remove(self.focus_win);
+        conn.configure_window_stacking(
+            window.get_window(),
+            self.windows[self.focus_win - 1].get_window(),
+        );
+        conn.update_focus(self.windows[self.focus_win - 1].get_window());
         self.windows.insert(0, window);
-
-        println!("{:?}", self.windows);
-        for win in self.windows.iter() {
-            conn.conn.send_request(&xcb::x::MapWindow {
-                window: win.get_window(),
-            });
-            conn.conn.flush().expect("err!");
-        }
+        conn.conn.flush().expect("err!");
     }
 
+    fn cycle_window_backward(&mut self, conn: &Connection) {
+        if self.windows.is_empty() {
+            return;
+        }
+        if self.windows.len() == 1 {
+            return;
+        }
+        let window: Window = self.windows.remove(0);
+        conn.configure_window_stacking(
+            window.get_window(),
+            self.windows[self.focus_win - 1].get_window(),
+        );
+        conn.update_focus(self.windows[self.focus_win - 1].get_window());
+        self.windows.push(window);
+        conn.conn.flush().expect("err!");
+    }
     fn floating() {
         unimplemented!();
     }
@@ -164,8 +175,16 @@ impl Connection {
         conn.send_request(&xcb::x::GrabKey {
             owner_events: true,
             grab_window: root_window.get_window(),
-            modifiers: xcb::x::ModMask::ANY,
-            key: 25,
+            modifiers: xcb::x::ModMask::CONTROL,
+            key: 26,
+            pointer_mode: xcb::x::GrabMode::Async,
+            keyboard_mode: xcb::x::GrabMode::Async,
+        });
+        conn.send_request(&xcb::x::GrabKey {
+            owner_events: true,
+            grab_window: root_window.get_window(),
+            modifiers: xcb::x::ModMask::CONTROL,
+            key: 27,
             pointer_mode: xcb::x::GrabMode::Async,
             keyboard_mode: xcb::x::GrabMode::Async,
         });
@@ -186,12 +205,31 @@ impl Connection {
             screen_width,
         }
     }
+
+    fn update_focus(&self, win: xcb::x::Window) {
+        self.conn.send_request(&xcb::x::SetInputFocus {
+            revert_to: xcb::x::InputFocus::PointerRoot,
+            focus: win,
+            time: xcb::x::CURRENT_TIME,
+        });
+    }
+
+    fn configure_window_stacking(&self, win: xcb::x::Window, sibling_win: xcb::x::Window) {
+        self.conn.send_request(&xcb::x::ConfigureWindow {
+            window: win,
+            value_list: &[
+                xcb::x::ConfigWindow::Sibling(sibling_win),
+                xcb::x::ConfigWindow::StackMode(xcb::x::StackMode::Below),
+            ],
+        });
+    }
+
     fn map_req(&self, win: xcb::x::Window, layouts: &mut Layouts) {
         if Window::new(&self, win).height < 50 {
             self.conn.send_request(&xcb::x::MapWindow { window: win });
             return;
         }
-        layouts.windows.push(Window::new(&self, win));
+        layouts.add_window(Window::new(&self, win));
         layouts.max(&self, win);
         layouts.focus_win = layouts.windows.len() - 1;
         self.conn.send_request(&xcb::x::ChangeWindowAttributes {
@@ -200,7 +238,8 @@ impl Connection {
                 xcb::x::EventMask::EXPOSURE
                     | xcb::x::EventMask::KEY_PRESS
                     | xcb::x::EventMask::STRUCTURE_NOTIFY
-                    | xcb::x::EventMask::PROPERTY_CHANGE,
+                    | xcb::x::EventMask::PROPERTY_CHANGE
+                    | EventMask::FOCUS_CHANGE,
             )],
         });
         self.conn.send_request(&xcb::x::MapWindow { window: win });
@@ -225,7 +264,7 @@ impl Connection {
     }
 
     fn configure_window(&self, win: &Window, cwin: &WindowChanges, border_width: u16) {
-        println!("{:?}", win.get_window());
+        // println!("{:?}", win.get_window());
         self.conn.send_request(&xcb::x::ConfigureWindow {
             window: win.get_window(),
             value_list: &[
@@ -241,10 +280,14 @@ impl Connection {
         self.conn.flush().expect("err!");
     }
 
-    fn desroy_notify(&self, layouts: &mut Layouts) {
+    fn destroy_notify(&self, layouts: &mut Layouts, win: xcb::x::Window) {
         if layouts.windows.is_empty() {
             return;
         }
+        if layouts.windows[layouts.focus_win].get_window() != win {
+            return;
+        }
+
         layouts.windows.remove(layouts.focus_win);
         layouts.focus_win = layouts.windows.len() - 1;
     }
@@ -273,15 +316,25 @@ fn main() {
         };
         match event {
             xcb::Event::X(x::Event::KeyPress(e)) => {
-                println!("{:#?}", e.detail());
                 if e.detail() == 24 {
                     break;
-                } else if e.detail() == 25 {
+                }
+                if e.detail() == 25 {
                     std::process::Command::new("dmenu_run")
                         .spawn()
                         .expect("launch err!");
-                } else if e.detail() == 26 {
-                    layouts.cycle_windows(&conn);
+                }
+                if e.detail() == 26 {
+                    if e.state() == xcb::x::KeyButMask::CONTROL {
+                        layouts.cycle_window_forward(&conn);
+                    }
+                    // println!("{:#?}", e.detail());
+                }
+                if e.detail() == 27 {
+                    if e.state() == xcb::x::KeyButMask::CONTROL {
+                        layouts.cycle_window_backward(&conn);
+                    }
+                    // println!("{:#?}", e.detail());
                 }
             }
             xcb::Event::X(x::Event::CreateNotify(e)) => {}
@@ -290,7 +343,9 @@ fn main() {
             xcb::Event::X(x::Event::MapNotify(e)) => {}
             xcb::Event::X(x::Event::MappingNotify(e)) => {}
             xcb::Event::X(x::Event::LeaveNotify(e)) => {}
-            xcb::Event::X(x::Event::DestroyNotify(e)) => conn.desroy_notify(&mut layouts),
+            xcb::Event::X(x::Event::DestroyNotify(e)) => {
+                conn.destroy_notify(&mut layouts, e.window())
+            }
             _ => {}
         }
         conn.conn.flush().expect("err!");
