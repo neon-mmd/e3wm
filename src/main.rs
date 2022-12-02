@@ -59,7 +59,7 @@ impl Layouts {
         }
     }
 
-    fn stack() {}
+    fn tile(&self, conn: &Connection) {}
 
     fn add_window(&mut self, win: Window) {
         self.windows.push(win);
@@ -71,22 +71,23 @@ impl Layouts {
             return;
         }
 
-        let gaps = 5;
         let window_changes = WindowChanges {
-            x: 0 + gaps,
-            y: 26 + gaps,
-            width: conn.screen_width - gaps as u16 * 2,
-            height: conn.screen_height - 26 - gaps as u16 * 2,
+            x: 0,
+            y: 0,
+            width: conn.screen_width,
+            height: conn.screen_height,
             border_width: 0,
             // sibling: win,
             // stack_mode: xcb::x::StackMode::Above,
         };
 
+        let gaps: i16 = 5;
         let border_width: u16 = 5;
+        let bar_height: i16 = 26;
         for window in self.windows.iter() {
             // connection.stop_window_events(&window);
             // conn.map_window(&window);
-            conn.configure_window(&window, &window_changes, border_width);
+            conn.configure_window(&window, &window_changes, border_width, bar_height, gaps);
             // connection.track_window_events(&window);
         }
     }
@@ -116,14 +117,15 @@ impl Layouts {
             return;
         }
         let window: Window = self.windows.remove(0);
-        conn.configure_window_stacking(
-            window.get_window(),
-            self.windows[self.focus_win - 1].get_window(),
-        );
-        conn.update_focus(self.windows[self.focus_win - 1].get_window());
         self.windows.push(window);
+        conn.configure_window_stacking(
+            self.windows[self.focus_win - 1].get_window(),
+            self.windows[self.focus_win].get_window(),
+        );
+        conn.update_focus(self.windows[self.focus_win].get_window());
         conn.conn.flush().expect("err!");
     }
+
     fn floating() {
         unimplemented!();
     }
@@ -225,7 +227,7 @@ impl Connection {
     }
 
     fn map_req(&self, win: xcb::x::Window, layouts: &mut Layouts) {
-        if Window::new(&self, win).height < 50 {
+        if Window::new(&self, win).height == 26 {
             self.conn.send_request(&xcb::x::MapWindow { window: win });
             return;
         }
@@ -245,10 +247,9 @@ impl Connection {
         self.conn.send_request(&xcb::x::MapWindow { window: win });
     }
     fn configure_request(&self, event: ConfigureRequestEvent) {
-        if Window::new(&self, event.window()).height < 50 {
+        if Window::new(&self, event.window()).height == 26 {
             return;
         }
-        let border_width: u16 = 0;
         let win = Window::new(&self, event.window());
         let cwin = WindowChanges {
             x: event.x(),
@@ -260,18 +261,35 @@ impl Connection {
             // stack_mode: event.stack_mode(),
         };
 
-        self.configure_window(&win, &cwin, border_width)
+        self.configure_window(&win, &cwin, 0, 0, 0)
     }
 
-    fn configure_window(&self, win: &Window, cwin: &WindowChanges, border_width: u16) {
+    fn configure_window(
+        &self,
+        win: &Window,
+        cwin: &WindowChanges,
+        border_width: u16,
+        bar_height: i16,
+        gaps: i16,
+    ) {
         // println!("{:?}", win.get_window());
+        // x: 0 + gaps,
+        // y: 26 + gaps,
+        // width: conn.screen_width - gaps as u16 * 2,
+        //height: conn.screen_height - 26 - gaps as u16 * 2,
+
         self.conn.send_request(&xcb::x::ConfigureWindow {
             window: win.get_window(),
             value_list: &[
-                x::ConfigWindow::X(cwin.x.into()),
-                x::ConfigWindow::Y(cwin.y.into()),
-                x::ConfigWindow::Width((cwin.width - (border_width * 2)).into()),
-                x::ConfigWindow::Height((cwin.height - (border_width * 2)).into()),
+                x::ConfigWindow::X((cwin.x + gaps).into()),
+                x::ConfigWindow::Y((cwin.y + bar_height + gaps).into()),
+                x::ConfigWindow::Width(
+                    (cwin.width - (gaps as u16 * 2) - (border_width * 2)).into(),
+                ),
+                x::ConfigWindow::Height(
+                    (cwin.height - bar_height as u16 - (gaps as u16 * 2) - (border_width * 2))
+                        .into(),
+                ),
                 x::ConfigWindow::BorderWidth((cwin.border_width + border_width).into()),
                 // x::ConfigWindow::Sibling(cwin.sibling.into()),
                 // x::ConfigWindow::StackMode(cwin.stack_mode.into()),
