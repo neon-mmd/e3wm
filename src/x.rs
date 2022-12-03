@@ -3,27 +3,29 @@ use xcb::{
     Xid,
 };
 
+use crate::layouts::Layouts;
+
 #[derive(Debug)]
-struct Window {
-    win: xcb::x::Window,
-    x: i16,
-    y: i16,
-    width: u16,
-    height: u16,
+pub struct Window {
+    pub win: xcb::x::Window,
+    pub x: i16,
+    pub y: i16,
+    pub width: u16,
+    pub height: u16,
 }
 
-struct WindowChanges {
-    x: i16,
-    y: i16,
-    width: u16,
-    height: u16,
-    border_width: u16,
+pub struct WindowChanges {
+    pub x: i16,
+    pub y: i16,
+    pub width: u16,
+    pub height: u16,
+    pub border_width: u16,
     // sibling: xcb::x::Window,
     // stack_mode: xcb::x::StackMode,
 }
 
 impl Window {
-    fn new(conn: &Connection, win: xcb::x::Window) -> Self {
+    pub fn new(conn: &Connection, win: xcb::x::Window) -> Self {
         let (x, y, width, height) = conn.get_geometry(win);
         Self {
             win,
@@ -33,105 +35,22 @@ impl Window {
             height,
         }
     }
-    fn get_window(&self) -> xcb::x::Window {
+    pub fn get_window(&self) -> xcb::x::Window {
         self.win
     }
 }
 
-struct Connection {
-    conn: xcb::Connection,
-    root_window: Window,
-    root_index: i32,
-    screen_height: u16,
-    screen_width: u16,
+pub struct Connection {
+    pub conn: xcb::Connection,
+    pub root_window: Window,
+    pub root_index: i32,
+    pub screen_height: u16,
+    pub screen_width: u16,
+    pub focus_win_border_color: u32,
+    pub unfocus_win_border_color: u32,
 }
 
-struct Layouts {
-    windows: Vec<Window>,
-    focus_win: usize,
-}
-
-impl Layouts {
-    fn new() -> Self {
-        Self {
-            windows: Vec::new(),
-            focus_win: 0,
-        }
-    }
-
-    fn tile(&self, conn: &Connection) {}
-
-    fn add_window(&mut self, win: Window) {
-        self.windows.push(win);
-        // println!("{:#?}", self.windows);
-    }
-
-    fn max(&self, conn: &Connection, win: xcb::x::Window) {
-        if self.windows.is_empty() {
-            return;
-        }
-
-        let window_changes = WindowChanges {
-            x: 0,
-            y: 0,
-            width: conn.screen_width,
-            height: conn.screen_height,
-            border_width: 0,
-            // sibling: win,
-            // stack_mode: xcb::x::StackMode::Above,
-        };
-
-        let gaps: i16 = 5;
-        let border_width: u16 = 5;
-        let bar_height: i16 = 26;
-        for window in self.windows.iter() {
-            // connection.stop_window_events(&window);
-            // conn.map_window(&window);
-            conn.configure_window(&window, &window_changes, border_width, bar_height, gaps);
-            // connection.track_window_events(&window);
-        }
-    }
-
-    fn cycle_window_forward(&mut self, conn: &Connection) {
-        if self.windows.is_empty() {
-            return;
-        }
-        if self.windows.len() == 1 {
-            return;
-        }
-        let window: Window = self.windows.remove(self.focus_win);
-        conn.configure_window_stacking(
-            window.get_window(),
-            self.windows[self.focus_win - 1].get_window(),
-        );
-        conn.update_focus(self.windows[self.focus_win - 1].get_window());
-        self.windows.insert(0, window);
-        conn.conn.flush().expect("err!");
-    }
-
-    fn cycle_window_backward(&mut self, conn: &Connection) {
-        if self.windows.is_empty() {
-            return;
-        }
-        if self.windows.len() == 1 {
-            return;
-        }
-        let window: Window = self.windows.remove(0);
-        self.windows.push(window);
-        conn.configure_window_stacking(
-            self.windows[self.focus_win - 1].get_window(),
-            self.windows[self.focus_win].get_window(),
-        );
-        conn.update_focus(self.windows[self.focus_win].get_window());
-        conn.conn.flush().expect("err!");
-    }
-
-    fn floating() {
-        unimplemented!();
-    }
-}
-
-fn register_events(conn: &xcb::Connection, win: xcb::x::Window) {
+pub fn register_events(conn: &xcb::Connection, win: xcb::x::Window) {
     conn.check_request(conn.send_request_checked(&xcb::x::ChangeWindowAttributes {
         window: win,
         value_list: &[Cw::EventMask(
@@ -152,7 +71,7 @@ fn register_events(conn: &xcb::Connection, win: xcb::x::Window) {
 }
 
 impl Connection {
-    fn new() -> Self {
+    pub fn new() -> Self {
         let (conn, root_index) =
             xcb::Connection::connect(None).expect("couldn't connect to display");
         let builder = conn.get_setup().roots().nth(root_index as usize);
@@ -161,6 +80,8 @@ impl Connection {
         let screen = builder.unwrap();
         let screen_height = screen.height_in_pixels();
         let screen_width = screen.width_in_pixels();
+        let focus_win_border_color = screen.white_pixel();
+        let unfocus_win_border_color = screen.black_pixel();
         let cookie = conn.send_request(&xcb::x::GetGeometry {
             drawable: xcb::x::Drawable::Window(win),
         });
@@ -193,8 +114,16 @@ impl Connection {
         conn.send_request(&xcb::x::GrabKey {
             owner_events: true,
             grab_window: root_window.get_window(),
-            modifiers: xcb::x::ModMask::ANY,
-            key: 19,
+            modifiers: xcb::x::ModMask::CONTROL,
+            key: 25,
+            pointer_mode: xcb::x::GrabMode::Async,
+            keyboard_mode: xcb::x::GrabMode::Async,
+        });
+        conn.send_request(&xcb::x::GrabKey {
+            owner_events: true,
+            grab_window: root_window.get_window(),
+            modifiers: xcb::x::ModMask::CONTROL,
+            key: 24,
             pointer_mode: xcb::x::GrabMode::Async,
             keyboard_mode: xcb::x::GrabMode::Async,
         });
@@ -205,10 +134,12 @@ impl Connection {
             root_index,
             screen_height,
             screen_width,
+            focus_win_border_color,
+            unfocus_win_border_color,
         }
     }
 
-    fn update_focus(&self, win: xcb::x::Window) {
+    pub fn update_focus(&self, win: xcb::x::Window) {
         self.conn.send_request(&xcb::x::SetInputFocus {
             revert_to: xcb::x::InputFocus::PointerRoot,
             focus: win,
@@ -216,7 +147,7 @@ impl Connection {
         });
     }
 
-    fn configure_window_stacking(&self, win: xcb::x::Window, sibling_win: xcb::x::Window) {
+    pub fn configure_window_stacking(&self, win: xcb::x::Window, sibling_win: xcb::x::Window) {
         self.conn.send_request(&xcb::x::ConfigureWindow {
             window: win,
             value_list: &[
@@ -226,14 +157,7 @@ impl Connection {
         });
     }
 
-    fn map_req(&self, win: xcb::x::Window, layouts: &mut Layouts) {
-        if Window::new(&self, win).height == 26 {
-            self.conn.send_request(&xcb::x::MapWindow { window: win });
-            return;
-        }
-        layouts.add_window(Window::new(&self, win));
-        layouts.max(&self, win);
-        layouts.focus_win = layouts.windows.len() - 1;
+    pub fn register_events_on_windows(&self, win: xcb::x::Window) {
         self.conn.send_request(&xcb::x::ChangeWindowAttributes {
             window: win,
             value_list: &[xcb::x::Cw::EventMask(
@@ -244,9 +168,34 @@ impl Connection {
                     | EventMask::FOCUS_CHANGE,
             )],
         });
+    }
+
+    pub fn configure_border(&self, win: xcb::x::Window, focus: bool) {
+        if focus {
+            self.conn.send_request(&xcb::x::ChangeWindowAttributes {
+                window: win,
+                value_list: &[xcb::x::Cw::BorderPixel(self.focus_win_border_color)],
+            });
+        } else {
+            self.conn.send_request(&xcb::x::ChangeWindowAttributes {
+                window: win,
+                value_list: &[xcb::x::Cw::BorderPixel(self.unfocus_win_border_color)],
+            });
+        }
+    }
+
+    pub fn map_req(&self, win: xcb::x::Window, layouts: &mut Layouts) {
+        if Window::new(&self, win).height == 26 {
+            self.conn.send_request(&xcb::x::MapWindow { window: win });
+            return;
+        }
+        layouts.windows.push(Window::new(&self, win));
+        layouts.focus_win = layouts.windows.len() - 1;
+        layouts.tile(&self);
+        self.register_events_on_windows(win);
         self.conn.send_request(&xcb::x::MapWindow { window: win });
     }
-    fn configure_request(&self, event: ConfigureRequestEvent) {
+    pub fn configure_request(&self, event: ConfigureRequestEvent) {
         if Window::new(&self, event.window()).height == 26 {
             return;
         }
@@ -264,7 +213,21 @@ impl Connection {
         self.configure_window(&win, &cwin, 0, 0, 0)
     }
 
-    fn configure_window(
+    pub fn kill_window(&self, layouts: &mut Layouts) {
+        if layouts.windows.is_empty() {
+            return;
+        }
+        self.conn.send_request(&xcb::x::KillClient {
+            resource: layouts.windows[layouts.focus_win]
+                .get_window()
+                .resource_id(),
+        });
+        // self.conn.send_request(&xcb::x::DestroyWindow {
+        // window: layouts.windows[layouts.focus_win].get_window(),
+        // });
+    }
+
+    pub fn configure_window(
         &self,
         win: &Window,
         cwin: &WindowChanges,
@@ -298,7 +261,7 @@ impl Connection {
         self.conn.flush().expect("err!");
     }
 
-    fn destroy_notify(&self, layouts: &mut Layouts, win: xcb::x::Window) {
+    pub fn destroy_notify(&self, layouts: &mut Layouts, win: xcb::x::Window) {
         if layouts.windows.is_empty() {
             return;
         }
@@ -308,64 +271,17 @@ impl Connection {
 
         layouts.windows.remove(layouts.focus_win);
         layouts.focus_win = layouts.windows.len() - 1;
+        if !layouts.windows.is_empty() {
+            self.update_focus(layouts.windows[layouts.focus_win].get_window());
+        }
+        layouts.tile(&self);
     }
 
-    fn get_geometry(&self, win: xcb::x::Window) -> (i16, i16, u16, u16) {
+    pub fn get_geometry(&self, win: xcb::x::Window) -> (i16, i16, u16, u16) {
         let cookie = self.conn.send_request(&xcb::x::GetGeometry {
             drawable: xcb::x::Drawable::Window(win),
         });
         let reply = self.conn.wait_for_reply(cookie).expect("geometry error!");
         (reply.x(), reply.y(), reply.width(), reply.height())
-    }
-}
-
-fn main() {
-    let mut layouts = Layouts::new();
-    let conn = Connection::new();
-    loop {
-        let event = match conn.conn.wait_for_event() {
-            Err(xcb::Error::Connection(xcb::ConnError::Connection)) => {
-                break;
-            }
-            Err(e) => {
-                panic!("unexpected error {:#?}", e);
-            }
-            Ok(e) => e,
-        };
-        match event {
-            xcb::Event::X(x::Event::KeyPress(e)) => {
-                if e.detail() == 24 {
-                    break;
-                }
-                if e.detail() == 25 {
-                    std::process::Command::new("dmenu_run")
-                        .spawn()
-                        .expect("launch err!");
-                }
-                if e.detail() == 26 {
-                    if e.state() == xcb::x::KeyButMask::CONTROL {
-                        layouts.cycle_window_forward(&conn);
-                    }
-                    // println!("{:#?}", e.detail());
-                }
-                if e.detail() == 27 {
-                    if e.state() == xcb::x::KeyButMask::CONTROL {
-                        layouts.cycle_window_backward(&conn);
-                    }
-                    // println!("{:#?}", e.detail());
-                }
-            }
-            xcb::Event::X(x::Event::CreateNotify(e)) => {}
-            xcb::Event::X(x::Event::ConfigureRequest(e)) => conn.configure_request(e),
-            xcb::Event::X(x::Event::MapRequest(e)) => conn.map_req(e.window(), &mut layouts),
-            xcb::Event::X(x::Event::MapNotify(e)) => {}
-            xcb::Event::X(x::Event::MappingNotify(e)) => {}
-            xcb::Event::X(x::Event::LeaveNotify(e)) => {}
-            xcb::Event::X(x::Event::DestroyNotify(e)) => {
-                conn.destroy_notify(&mut layouts, e.window())
-            }
-            _ => {}
-        }
-        conn.conn.flush().expect("err!");
     }
 }
