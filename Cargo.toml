@@ -10,5 +10,5 @@ name = "E3WM"
 doc = false
 
 [dependencies]
-rlua = "0.19.4"
+pyo3 = {version= "0.17.3",features = ["auto-initialize"]}
 xcb = {version= "1.2.0", features=["randr","composite","present"]} 

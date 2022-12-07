@@ -3,7 +3,10 @@ use xcb::{
     Xid,
 };
 
-use crate::layouts::Layouts;
+use crate::{
+    layouts::Layouts,
+    tile::{self, tile},
+};
 
 #[derive(Debug)]
 pub struct Window {
@@ -94,7 +97,7 @@ impl Connection {
             width,
             height,
         };
-        register_events(&conn, root_window.win);
+        register_events(&conn, root_window.get_window());
         conn.send_request(&xcb::x::GrabKey {
             owner_events: true,
             grab_window: root_window.get_window(),
@@ -191,7 +194,7 @@ impl Connection {
         }
         layouts.windows.push(Window::new(&self, win));
         layouts.focus_win = layouts.windows.len() - 1;
-        layouts.tile(&self);
+        tile(layouts, &self);
         self.register_events_on_windows(win);
         self.conn.send_request(&xcb::x::MapWindow { window: win });
     }
@@ -274,7 +277,7 @@ impl Connection {
         if !layouts.windows.is_empty() {
             self.update_focus(layouts.windows[layouts.focus_win].get_window());
         }
-        layouts.tile(&self);
+        tile(layouts, &self);
     }
 
     pub fn get_geometry(&self, win: xcb::x::Window) -> (i16, i16, u16, u16) {

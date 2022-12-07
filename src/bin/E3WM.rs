@@ -2,12 +2,15 @@ use xcb::{
     x::{self, ConfigureRequestEvent, Cw, EventMask},
     Xid,
 };
-use E3WM::layouts::Layouts;
 use E3WM::x::Connection;
+use E3WM::{config_parser::ParsedConfig, layouts::Layouts, workspaces::Workspaces};
 
 fn main() {
-    let mut layouts = Layouts::new();
+    let config = ParsedConfig::new();
     let conn = Connection::new();
+    let mut layouts = Layouts::new(&config);
+    println!("{:#?}", config);
+    let workspaces = Workspaces::new(&config);
     loop {
         let event = match conn.conn.wait_for_event() {
             Err(xcb::Error::Connection(xcb::ConnError::Connection)) => {
