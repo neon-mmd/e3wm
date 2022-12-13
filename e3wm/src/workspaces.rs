@@ -1,4 +1,5 @@
-use crate::{config_parser::ParsedConfig, layouts::Layouts};
+use crate::layouts::Layouts;
+use api::config_parser::ParsedConfig;
 
 pub struct Workspaces {
     pub workspaces: Vec<Layouts>,

@@ -1,14 +1,17 @@
 use xcb::{
-    x::{self, ConfigureRequestEvent, Cw, EventMask},
+    x::{self, ConfigureRequestEvent, Cw, EventMask, KeyButMask},
     Xid,
 };
 
+use api::config_parser::ParsedConfig;
+
 use crate::{
-    layouts::Layouts,
-    tile::{self, tile},
+    keybinding_parser::Keybindings,
+    layouts::{Layouts, WmLayouts},
+    wm_layouts::tile::tile,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Hash)]
 pub struct Window {
     pub win: xcb::x::Window,
     pub x: i16,
@@ -51,6 +54,7 @@ pub struct Connection {
     pub screen_width: u16,
     pub focus_win_border_color: u32,
     pub unfocus_win_border_color: u32,
+    pub keybindings: Keybindings,
 }
 
 pub fn register_events(conn: &xcb::Connection, win: xcb::x::Window) {
@@ -74,7 +78,7 @@ pub fn register_events(conn: &xcb::Connection, win: xcb::x::Window) {
 }
 
 impl Connection {
-    pub fn new() -> Self {
+    pub fn new(config: &ParsedConfig) -> Self {
         let (conn, root_index) =
             xcb::Connection::connect(None).expect("couldn't connect to display");
         let builder = conn.get_setup().roots().nth(root_index as usize);
@@ -97,39 +101,14 @@ impl Connection {
             width,
             height,
         };
+
         register_events(&conn, root_window.get_window());
-        conn.send_request(&xcb::x::GrabKey {
-            owner_events: true,
-            grab_window: root_window.get_window(),
-            modifiers: xcb::x::ModMask::CONTROL,
-            key: 26,
-            pointer_mode: xcb::x::GrabMode::Async,
-            keyboard_mode: xcb::x::GrabMode::Async,
-        });
-        conn.send_request(&xcb::x::GrabKey {
-            owner_events: true,
-            grab_window: root_window.get_window(),
-            modifiers: xcb::x::ModMask::CONTROL,
-            key: 27,
-            pointer_mode: xcb::x::GrabMode::Async,
-            keyboard_mode: xcb::x::GrabMode::Async,
-        });
-        conn.send_request(&xcb::x::GrabKey {
-            owner_events: true,
-            grab_window: root_window.get_window(),
-            modifiers: xcb::x::ModMask::CONTROL,
-            key: 25,
-            pointer_mode: xcb::x::GrabMode::Async,
-            keyboard_mode: xcb::x::GrabMode::Async,
-        });
-        conn.send_request(&xcb::x::GrabKey {
-            owner_events: true,
-            grab_window: root_window.get_window(),
-            modifiers: xcb::x::ModMask::CONTROL,
-            key: 24,
-            pointer_mode: xcb::x::GrabMode::Async,
-            keyboard_mode: xcb::x::GrabMode::Async,
-        });
+        let mut keybindings = Keybindings::new();
+        keybindings.string_to_keycodes(&config, &conn);
+
+        // println!("{:#?}",keybindings)
+
+        Self::grab_keys(&mut keybindings, &conn, &root_window);
 
         Self {
             conn,
@@ -139,6 +118,54 @@ impl Connection {
             screen_width,
             focus_win_border_color,
             unfocus_win_border_color,
+            keybindings,
+        }
+    }
+
+    fn grab_keys(keybindings: &mut Keybindings, conn: &xcb::Connection, root: &Window) {
+        for (keys, modifiers) in keybindings.keyseqs.iter() {
+            let (mods, _) = modifiers;
+            for key in keys {
+                for modifiers in [
+                    xcb::x::ModMask::from_bits_truncate(mods.bits()),
+                    xcb::x::ModMask::from_bits_truncate(mods.bits()) | xcb::x::ModMask::LOCK,
+                ] {
+                    conn.send_request(&xcb::x::GrabKey {
+                        owner_events: true,
+                        grab_window: root.get_window(),
+                        modifiers,
+                        key: *key,
+                        pointer_mode: xcb::x::GrabMode::Async,
+                        keyboard_mode: xcb::x::GrabMode::Async,
+                    });
+                }
+            }
+        }
+    }
+
+    pub fn handle_key_press(
+        &self,
+        layouts: &mut Layouts,
+        e: xcb::x::KeyPressEvent,
+        config: &ParsedConfig,
+    ) {
+        for (keys, modifiers) in self.keybindings.keyseqs.iter() {
+            let (mods, cmd) = modifiers;
+            for key in keys.iter() {
+                if *key == e.detail() {
+                    if e.state() == *mods || e.state() == *mods | xcb::x::KeyButMask::MOD2 {
+                        if cmd[0] == "quit" {
+                            std::process::exit(0);
+                        } else if cmd[0] == "change_layout" {
+                            layouts.change_layout(config, &self);
+                        } else if cmd[0] == "cycle_window_focus_forward" {
+                            layouts.cycle_window_focus_forward(&self);
+                        } else {
+                            std::process::Command::new(cmd[0].clone()).spawn();
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -220,14 +247,9 @@ impl Connection {
         if layouts.windows.is_empty() {
             return;
         }
-        self.conn.send_request(&xcb::x::KillClient {
-            resource: layouts.windows[layouts.focus_win]
-                .get_window()
-                .resource_id(),
+        self.conn.send_request(&xcb::x::DestroyWindow {
+            window: layouts.windows[layouts.focus_win].get_window(),
         });
-        // self.conn.send_request(&xcb::x::DestroyWindow {
-        // window: layouts.windows[layouts.focus_win].get_window(),
-        // });
     }
 
     pub fn configure_window(
@@ -277,7 +299,14 @@ impl Connection {
         if !layouts.windows.is_empty() {
             self.update_focus(layouts.windows[layouts.focus_win].get_window());
         }
-        tile(layouts, &self);
+        match layouts.current_layout {
+            WmLayouts::Tile => {
+                tile(layouts, &self);
+            }
+            _ => {
+                return;
+            }
+        }
     }
 
     pub fn get_geometry(&self, win: xcb::x::Window) -> (i16, i16, u16, u16) {

@@ -1,1 +1,4 @@
 target
+dist
+build
+e3wm_api.egg-info
