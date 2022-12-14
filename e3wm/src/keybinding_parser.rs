@@ -28,7 +28,7 @@ impl Keybindings {
             } else {
                 let modifiers: Vec<&str> = key.trim().split("-").collect();
                 let mut modifiers_modmask: KeyButMask = KeyButMask::empty();
-                let mut keysym: xkbcommon::xkb::Keysym = 0;
+                let mut keysym: Vec<xkbcommon::xkb::Keysym> = Vec::new();
                 let mut keycodes: Vec<Keycode> = Vec::new();
                 for keys in 0..modifiers.len() - 1 {
                     modifiers_modmask |= match modifiers[keys] {
@@ -47,27 +47,30 @@ impl Keybindings {
                     let last = modifiers.len() - 1;
                     if modifiers[last].ends_with(">") && modifiers[last].starts_with("<") {
                         if modifiers[last].to_lowercase() == "<tab>" {
-                            keysym = keysyms::KEY_Tab;
+                            keysym.push(keysyms::KEY_Tab);
                         } else if modifiers[last].to_lowercase() == "<enter>" {
-                            keysym = keysyms::KEY_Return;
+                            keysym.push(keysyms::KEY_Return);
+                            keysym.push(keysyms::KEY_KP_Enter);
                         } else {
-                            keysym = keysyms::KEY_Escape;
+                            keysym.push(keysyms::KEY_Escape);
                         }
                     } else if (modifiers[last].ends_with(">") && !modifiers[last].starts_with("<"))
                         || (!modifiers[last].ends_with(">") && modifiers[last].starts_with("<"))
                     {
                         panic!("Unrecognized keys");
                     } else {
-                        keysym = xkbcommon::xkb::keysym_from_name(
+                        keysym.push(xkbcommon::xkb::keysym_from_name(
                             &modifiers[modifiers.len() - 1].to_lowercase(),
                             xkbcommon::xkb::KEYSYM_NO_FLAGS,
-                        );
+                        ));
 
-                        if keysym == xkbcommon::xkb::KEY_NoSymbol {
+                        if keysym[0] == xkbcommon::xkb::KEY_NoSymbol {
                             panic!("Unrecognized key");
                         }
                     }
-                    keycodes = Self::_convert_to_keycode(&conn, keysym);
+                    for key_symbol in keysym {
+                        keycodes.extend(Self::_convert_to_keycode(&conn, key_symbol));
+                    }
                 }
                 self.keyseqs
                     .insert(keycodes, (modifiers_modmask, modifier.clone()));
