@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use xcb::x::{KeyButMask, Keycode};
 
 use api::config_parser::ParsedConfig;
+use xkbcommon::xkb::keysyms;
 
 #[derive(Debug)]
 pub struct Keybindings {
@@ -46,11 +47,11 @@ impl Keybindings {
                     let last = modifiers.len() - 1;
                     if modifiers[last].ends_with(">") && modifiers[last].starts_with("<") {
                         if modifiers[last].to_lowercase() == "<tab>" {
-                            keycodes.push(23)
+                            keysym = keysyms::KEY_Tab;
                         } else if modifiers[last].to_lowercase() == "<enter>" {
-                            keycodes.push(36)
+                            keysym = keysyms::KEY_Return;
                         } else {
-                            keycodes.push(9)
+                            keysym = keysyms::KEY_Escape;
                         }
                     } else if (modifiers[last].ends_with(">") && !modifiers[last].starts_with("<"))
                         || (!modifiers[last].ends_with(">") && modifiers[last].starts_with("<"))
@@ -65,8 +66,8 @@ impl Keybindings {
                         if keysym == xkbcommon::xkb::KEY_NoSymbol {
                             panic!("Unrecognized key");
                         }
-                        keycodes = Self::_convert_to_keycode(&conn, keysym);
                     }
+                    keycodes = Self::_convert_to_keycode(&conn, keysym);
                 }
                 self.keyseqs
                     .insert(keycodes, (modifiers_modmask, modifier.clone()));
