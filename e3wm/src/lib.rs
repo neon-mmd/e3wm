@@ -1,3 +1,4 @@
+pub mod atoms;
 pub mod event;
 pub mod keybinding_parser;
 pub mod layouts;

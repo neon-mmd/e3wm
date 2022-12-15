@@ -32,3 +32,7 @@ class hacker:
     @staticmethod
     def redoit():
         return "reload"
+
+    @staticmethod
+    def goto_tag(tag):
+        return "goto_tag," + str(tag)

@@ -14,7 +14,7 @@ pub fn tile(layouts: &mut Layouts, conn: &Connection) {
     }
     let gaps: i16 = 5;
     let border_width: u16 = 5;
-    let bar_height: i16 = 26;
+    let bar_height: i16 = conn.bar_height as i16;
 
     let master_width = (conn.screen_width as f32 * 0.5) as u16;
     let master_height = conn.screen_height as u16;

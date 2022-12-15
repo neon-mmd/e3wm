@@ -20,7 +20,7 @@ pub fn max(layouts: &mut Layouts, conn: &Connection) {
 
     let gaps: i16 = 5;
     let border_width: u16 = 5;
-    let bar_height: i16 = 26;
+    let bar_height: i16 = conn.bar_height as i16;
     for i in 0..layouts.windows.len() {
         // connection.stop_window_events(&window);
         // conn.map_window(&window);

@@ -9,7 +9,6 @@ use xcb::{
 pub struct Events {
     config: ParsedConfig,
     conn: Connection,
-    layouts: Layouts,
     workspaces: Workspaces,
 }
 
@@ -19,12 +18,10 @@ impl Events {
         config.parse();
         println!("{:#?}", config);
         let conn = Connection::new(&mut config);
-        let layouts = Layouts::new(&mut config);
         let workspaces = Workspaces::new(&mut config);
         Self {
             config,
             conn,
-            layouts,
             workspaces,
         }
     }
@@ -43,18 +40,18 @@ impl Events {
                 xcb::Event::X(x::Event::KeyPress(e)) => {
                     // println!("{:#?}", e.detail());
                     self.conn
-                        .handle_key_press(&mut self.layouts, e, &self.config)
+                        .handle_key_press(&mut self.workspaces, e, &self.config)
                 }
                 xcb::Event::X(x::Event::CreateNotify(e)) => {}
                 xcb::Event::X(x::Event::ConfigureRequest(e)) => self.conn.configure_request(e),
                 xcb::Event::X(x::Event::MapRequest(e)) => {
-                    self.conn.map_req(e.window(), &mut self.layouts)
+                    self.conn.map_req(e.window(), &mut self.workspaces)
                 }
                 xcb::Event::X(x::Event::MapNotify(e)) => {}
                 xcb::Event::X(x::Event::MappingNotify(e)) => {}
                 xcb::Event::X(x::Event::LeaveNotify(e)) => {}
                 xcb::Event::X(x::Event::DestroyNotify(e)) => {
-                    self.conn.destroy_notify(&mut self.layouts, e.window())
+                    self.conn.destroy_notify(&mut self.workspaces, e.window())
                 }
                 _ => {}
             }

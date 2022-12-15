@@ -6,9 +6,11 @@ use xcb::{
 use api::config_parser::ParsedConfig;
 
 use crate::{
+    atoms::InternedAtoms,
     keybinding_parser::Keybindings,
     layouts::{Layouts, WmLayouts},
     wm_layouts::tile::tile,
+    workspaces::Workspaces,
 };
 
 #[derive(Debug, Hash)]
@@ -55,6 +57,8 @@ pub struct Connection {
     pub focus_win_border_color: u32,
     pub unfocus_win_border_color: u32,
     pub keybindings: Keybindings,
+    pub atoms: InternedAtoms,
+    pub bar_height: u16,
 }
 
 pub fn register_events(conn: &xcb::Connection, win: xcb::x::Window) {
@@ -105,8 +109,9 @@ impl Connection {
         register_events(&conn, root_window.get_window());
         let mut keybindings = Keybindings::new();
         keybindings.string_to_keycodes(&config, &conn);
-
         // println!("{:#?}",keybindings)
+        let atoms = InternedAtoms::new(&conn);
+        atoms.setup(config, &conn, &root_window);
 
         Self::grab_keys(&mut keybindings, &conn, &root_window);
 
@@ -119,6 +124,8 @@ impl Connection {
             focus_win_border_color,
             unfocus_win_border_color,
             keybindings,
+            atoms,
+            bar_height: 0,
         }
     }
 
@@ -145,7 +152,7 @@ impl Connection {
 
     pub fn handle_key_press(
         &self,
-        layouts: &mut Layouts,
+        workspace: &mut Workspaces,
         e: xcb::x::KeyPressEvent,
         config: &ParsedConfig,
     ) {
@@ -154,12 +161,18 @@ impl Connection {
             for key in keys.iter() {
                 if *key == e.detail() {
                     if e.state() == *mods || e.state() == *mods | xcb::x::KeyButMask::MOD2 {
+                        let cmd: Vec<&str> = cmd[0].split(",").collect();
                         if cmd[0] == "quit" {
                             std::process::exit(0);
                         } else if cmd[0] == "change_layout" {
-                            layouts.change_layout(config, &self);
+                            workspace.get_current_layout().change_layout(config, &self);
                         } else if cmd[0] == "cycle_window_focus_forward" {
-                            layouts.cycle_window_focus_forward(&self);
+                            workspace
+                                .get_current_layout()
+                                .cycle_window_focus_forward(&self);
+                        } else if cmd[0] == "goto_tag" {
+                            workspace
+                                .go_to_tag(cmd[1].to_string().parse::<usize>().unwrap() - 1, &self);
                         } else {
                             std::process::Command::new(cmd[0].clone()).spawn();
                         }
@@ -214,11 +227,27 @@ impl Connection {
         }
     }
 
-    pub fn map_req(&self, win: xcb::x::Window, layouts: &mut Layouts) {
-        if Window::new(&self, win).height == 26 {
+    pub fn map_req(&mut self, win: xcb::x::Window, workspace: &mut Workspaces) {
+        let cookie = self.conn.send_request(&x::GetProperty {
+            delete: false,
+            window: win,
+            property: self.atoms.WM_CLASS,
+            r#type: x::ATOM_STRING,
+            long_offset: 0,
+            long_length: 8,
+        });
+
+        let reply = self.conn.wait_for_reply(cookie).expect("err!!");
+        let title =
+            std::str::from_utf8(reply.value()).expect("The WM_NAME property is not valid UTF-8");
+
+        if title.contains("bar") {
+            self.bar_height = self.get_geometry(win).3;
             self.conn.send_request(&xcb::x::MapWindow { window: win });
             return;
         }
+
+        let layouts = workspace.get_current_layout();
         layouts.windows.push(Window::new(&self, win));
         layouts.focus_win = layouts.windows.len() - 1;
         tile(layouts, &self);
@@ -226,7 +255,7 @@ impl Connection {
         self.conn.send_request(&xcb::x::MapWindow { window: win });
     }
     pub fn configure_request(&self, event: ConfigureRequestEvent) {
-        if Window::new(&self, event.window()).height == 26 {
+        if Window::new(&self, event.window()).height == self.bar_height {
             return;
         }
         let win = Window::new(&self, event.window());
@@ -243,7 +272,8 @@ impl Connection {
         self.configure_window(&win, &cwin, 0, 0, 0)
     }
 
-    pub fn kill_window(&self, layouts: &mut Layouts) {
+    pub fn kill_window(&self, workspace: &mut Workspaces) {
+        let layouts = workspace.get_current_layout();
         if layouts.windows.is_empty() {
             return;
         }
@@ -286,7 +316,8 @@ impl Connection {
         self.conn.flush().expect("err!");
     }
 
-    pub fn destroy_notify(&self, layouts: &mut Layouts, win: xcb::x::Window) {
+    pub fn destroy_notify(&self, workspace: &mut Workspaces, win: xcb::x::Window) {
+        let layouts = workspace.get_current_layout();
         if layouts.windows.is_empty() {
             return;
         }

@@ -10,7 +10,7 @@ pub struct Tree {
     pub parent: Option<Box<Tree>>,
     pub value: Window,
     pub hash: u64,
-    pub vertical: bool,
+    pub vertical: Option<bool>,
     pub left: Option<Box<Tree>>,
     pub right: Option<Box<Tree>>,
 }
@@ -22,7 +22,7 @@ impl Tree {
             parent,
             value: win,
             hash,
-            vertical:true,
+            vertical: None,
             left: None,
             right: None,
         }
@@ -32,6 +32,8 @@ impl Tree {
         t.hash(&mut s);
         s.finish()
     }
+
+    pub fn insert(&mut self) {}
 
     pub fn search_win(root: Box<Tree>, win: &Window) -> Option<Box<Tree>> {
         if root.value.get_window() == win.get_window() {
