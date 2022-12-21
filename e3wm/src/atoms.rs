@@ -85,7 +85,7 @@ impl InternedAtoms {
             mode: x::PropMode::Replace,
             window: win.get_window(),
             property: self._NET_CURRENT_DESKTOP,
-            r#type: x::ATOM_CARDINAL,
+            r#type: x::ATOM_STRING,
             data: "0".as_bytes(),
         });
     }

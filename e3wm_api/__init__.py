@@ -34,5 +34,9 @@ class hacker:
         return "reload"
 
     @staticmethod
+    def split_window_vertical():
+        return "split_window_vertical"
+
+    @staticmethod
     def goto_tag(tag):
         return "goto_tag," + str(tag)

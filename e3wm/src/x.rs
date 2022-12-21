@@ -9,7 +9,7 @@ use crate::{
     atoms::InternedAtoms,
     keybinding_parser::Keybindings,
     layouts::{Layouts, WmLayouts},
-    wm_layouts::tile::tile,
+    wm_layouts::{max::max, tile::tile},
     workspaces::Workspaces,
 };
 
@@ -59,6 +59,7 @@ pub struct Connection {
     pub keybindings: Keybindings,
     pub atoms: InternedAtoms,
     pub bar_height: u16,
+    vertical: bool,
 }
 
 pub fn register_events(conn: &xcb::Connection, win: xcb::x::Window) {
@@ -126,6 +127,7 @@ impl Connection {
             keybindings,
             atoms,
             bar_height: 0,
+            vertical: true,
         }
     }
 
@@ -169,7 +171,7 @@ impl Connection {
                         } else if cmd[0] == "cycle_window_focus_forward" {
                             workspace
                                 .get_current_layout()
-                                .cycle_window_focus_forward(&self);
+                                .cycle_window_focus_forward(&self, config);
                         } else if cmd[0] == "goto_tag" {
                             workspace
                                 .go_to_tag(cmd[1].to_string().parse::<usize>().unwrap() - 1, &self);
@@ -227,7 +229,21 @@ impl Connection {
         }
     }
 
-    pub fn map_req(&mut self, win: xcb::x::Window, workspace: &mut Workspaces) {
+    pub fn split_vertically(&mut self) {
+        self.vertical = true
+    }
+
+    pub fn split_horizontally(&mut self) {
+        self.vertical = false
+    }
+
+    pub fn map_req(
+        &mut self,
+        win: xcb::x::Window,
+        workspace: &mut Workspaces,
+        config: &ParsedConfig,
+    ) {
+        let layouts = workspace.get_current_layout();
         let cookie = self.conn.send_request(&x::GetProperty {
             delete: false,
             window: win,
@@ -246,11 +262,28 @@ impl Connection {
             self.conn.send_request(&xcb::x::MapWindow { window: win });
             return;
         }
+        if config.dynamic == true {
+            layouts.windows.push(Window::new(&self, win));
+            layouts.focus_win = layouts.windows.len() - 1;
 
-        let layouts = workspace.get_current_layout();
-        layouts.windows.push(Window::new(&self, win));
-        layouts.focus_win = layouts.windows.len() - 1;
-        tile(layouts, &self);
+            match layouts.current_layout {
+                WmLayouts::Tile => {
+                    tile(layouts, self);
+                }
+                WmLayouts::Max => {
+                    max(layouts, self);
+                }
+                WmLayouts::Float => {
+                    println!("to be implemented!!");
+                }
+            }
+        } else {
+            if self.vertical == true {
+                layouts.split_window_horizontal(&self, Window::new(&self, win), config);
+            } else {
+                layouts.split_window_horizontal(&self, Window::new(&self, win), config);
+            }
+        }
         self.register_events_on_windows(win);
         self.conn.send_request(&xcb::x::MapWindow { window: win });
     }
@@ -272,14 +305,16 @@ impl Connection {
         self.configure_window(&win, &cwin, 0, 0, 0)
     }
 
-    pub fn kill_window(&self, workspace: &mut Workspaces) {
+    pub fn kill_window(&self, workspace: &mut Workspaces, config: &ParsedConfig) {
         let layouts = workspace.get_current_layout();
-        if layouts.windows.is_empty() {
-            return;
+        if config.dynamic == true {
+            if layouts.windows.is_empty() {
+                return;
+            }
+            self.conn.send_request(&xcb::x::DestroyWindow {
+                window: layouts.windows[layouts.focus_win].get_window(),
+            });
         }
-        self.conn.send_request(&xcb::x::DestroyWindow {
-            window: layouts.windows[layouts.focus_win].get_window(),
-        });
     }
 
     pub fn configure_window(
@@ -296,7 +331,7 @@ impl Connection {
         // width: conn.screen_width - gaps as u16 * 2,
         //height: conn.screen_height - 26 - gaps as u16 * 2,
 
-        self.conn.send_request(&xcb::x::ConfigureWindow {
+        let cookie = self.conn.send_request_checked(&xcb::x::ConfigureWindow {
             window: win.get_window(),
             value_list: &[
                 x::ConfigWindow::X((cwin.x + gaps).into()),
@@ -313,30 +348,67 @@ impl Connection {
                 // x::ConfigWindow::StackMode(cwin.stack_mode.into()),
             ],
         });
+        let reply = self.conn.check_request(cookie);
+        if reply.is_err() {
+            return;
+        }
         self.conn.flush().expect("err!");
     }
 
-    pub fn destroy_notify(&self, workspace: &mut Workspaces, win: xcb::x::Window) {
+    pub fn destroy_notify(
+        &self,
+        workspace: &mut Workspaces,
+        win: xcb::x::Window,
+        config: &ParsedConfig,
+    ) {
         let layouts = workspace.get_current_layout();
-        if layouts.windows.is_empty() {
-            return;
-        }
-        if layouts.windows[layouts.focus_win].get_window() != win {
-            return;
-        }
-
-        layouts.windows.remove(layouts.focus_win);
-        layouts.focus_win = layouts.windows.len() - 1;
-        if !layouts.windows.is_empty() {
-            self.update_focus(layouts.windows[layouts.focus_win].get_window());
-        }
-        match layouts.current_layout {
-            WmLayouts::Tile => {
-                tile(layouts, &self);
-            }
-            _ => {
+        if config.dynamic == true {
+            if layouts.windows.is_empty() {
                 return;
             }
+            if layouts.windows[layouts.focus_win].get_window() != win {
+                return;
+            }
+
+            layouts.windows.remove(layouts.focus_win);
+            layouts.focus_win = layouts.windows.len() - 1;
+            if !layouts.windows.is_empty() {
+                self.update_focus(layouts.windows[layouts.focus_win].get_window());
+            }
+            match layouts.current_layout {
+                WmLayouts::Tile => {
+                    tile(layouts, &self);
+                }
+                _ => {
+                    return;
+                }
+            }
+        } else {
+            if layouts.nodes.is_empty() {
+                return;
+            }
+            if layouts.nodes[layouts.focus_win]
+                .value
+                .as_mut()
+                .unwrap()
+                .get_window()
+                != win
+            {
+                return;
+            }
+
+            layouts.remove();
+            if layouts.nodes.is_empty() {
+                return;
+            }
+            layouts.resize(&self);
+            self.update_focus(
+                layouts.nodes[layouts.focus_win]
+                    .value
+                    .as_mut()
+                    .unwrap()
+                    .get_window(),
+            );
         }
     }
 

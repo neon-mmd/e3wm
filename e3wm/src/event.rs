@@ -45,13 +45,15 @@ impl Events {
                 xcb::Event::X(x::Event::CreateNotify(e)) => {}
                 xcb::Event::X(x::Event::ConfigureRequest(e)) => self.conn.configure_request(e),
                 xcb::Event::X(x::Event::MapRequest(e)) => {
-                    self.conn.map_req(e.window(), &mut self.workspaces)
+                    self.conn
+                        .map_req(e.window(), &mut self.workspaces, &self.config)
                 }
                 xcb::Event::X(x::Event::MapNotify(e)) => {}
                 xcb::Event::X(x::Event::MappingNotify(e)) => {}
                 xcb::Event::X(x::Event::LeaveNotify(e)) => {}
                 xcb::Event::X(x::Event::DestroyNotify(e)) => {
-                    self.conn.destroy_notify(&mut self.workspaces, e.window())
+                    self.conn
+                        .destroy_notify(&mut self.workspaces, e.window(), &self.config)
                 }
                 _ => {}
             }
